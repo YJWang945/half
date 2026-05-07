@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Task, Agent } from '../types';
+import { Task, Agent, TaskHandoff } from '../types';
 import { api } from '../api/client';
 import StatusBadge from './StatusBadge';
 import { copyText } from '../contracts';
@@ -9,10 +9,28 @@ interface Props {
   task: Task;
   agents: Agent[];
   allTasks: Task[];
+  handoffs: TaskHandoff[];
   onRefresh: () => void;
 }
 
-export default function TaskDetailPanel({ task, agents, allTasks, onRefresh }: Props) {
+interface HandoffDraft {
+  summary: string;
+  details: string;
+}
+
+interface HandoffTemplateItem {
+  key: string;
+  label: string;
+}
+
+function handoffToDraft(handoff: TaskHandoff): HandoffDraft {
+  return {
+    summary: handoff.summary || '',
+    details: handoff.details || '',
+  };
+}
+
+export default function TaskDetailPanel({ task, agents, allTasks, handoffs, onRefresh }: Props) {
   const [loading, setLoading] = useState('');
   const [copied, setCopied] = useState(false);
   const [showDispatchReminder, setShowDispatchReminder] = useState(false);
@@ -28,6 +46,10 @@ export default function TaskDetailPanel({ task, agents, allTasks, onRefresh }: P
   // 失效而静默失败，导致剪贴板里残留上一次成功复制的 Prompt。
   const [cachedPrompt, setCachedPrompt] = useState<string | null>(null);
   const [promptError, setPromptError] = useState<string | null>(null);
+  const [handoffDrafts, setHandoffDrafts] = useState<Record<number, HandoffDraft>>({});
+  const [handoffSaveState, setHandoffSaveState] = useState<Record<number, 'idle' | 'saving' | 'saved' | 'error'>>({});
+  const [handoffTemplates, setHandoffTemplates] = useState<HandoffTemplateItem[]>([]);
+  const [handoffTemplateKeys, setHandoffTemplateKeys] = useState<Record<number, string>>({});
 
   const assignee = agents.find((a) => a.id === task.assignee_agent_id);
 
@@ -41,6 +63,14 @@ export default function TaskDetailPanel({ task, agents, allTasks, onRefresh }: P
   const blockedPredecessors = predecessorTasks.filter(
     (predecessorTask) => predecessorTask.status !== 'completed' && predecessorTask.status !== 'abandoned'
   );
+  const incomingHandoffs = useMemo(
+    () => handoffs.filter((handoff) => handoff.to_task_id === task.task_code),
+    [handoffs, task.task_code],
+  );
+  const outgoingHandoffs = useMemo(
+    () => handoffs.filter((handoff) => handoff.from_task_id === task.task_code),
+    [handoffs, task.task_code],
+  );
   const canOperate = blockedPredecessors.length === 0;
   const canEdit = task.status === 'pending' && canOperate;
 
@@ -51,6 +81,23 @@ export default function TaskDetailPanel({ task, agents, allTasks, onRefresh }: P
     setDraftTimeoutMinutes(String(task.timeout_minutes ?? 10));
     setSaveState('idle');
   }, [task.description, task.expected_output_path, task.id, task.task_name, task.timeout_minutes]);
+
+  useEffect(() => {
+    const nextDrafts: Record<number, HandoffDraft> = {};
+    const nextSaveState: Record<number, 'idle' | 'saving' | 'saved' | 'error'> = {};
+    for (const handoff of outgoingHandoffs) {
+      nextDrafts[handoff.id] = handoffToDraft(handoff);
+      nextSaveState[handoff.id] = 'idle';
+    }
+    setHandoffDrafts(nextDrafts);
+    setHandoffSaveState(nextSaveState);
+  }, [task.task_code]);
+
+  useEffect(() => {
+    api.get<HandoffTemplateItem[]>('/api/handoffs/templates')
+      .then(setHandoffTemplates)
+      .catch(() => {});
+  }, []);
 
   const parsedDraftTimeoutMinutes = Number.parseInt(draftTimeoutMinutes, 10);
   const isDraftTimeoutValid = Number.isInteger(parsedDraftTimeoutMinutes)
@@ -100,6 +147,63 @@ export default function TaskDetailPanel({ task, agents, allTasks, onRefresh }: P
     return () => window.clearTimeout(timer);
   }, [saveState]);
 
+  const incomingHandoffSignature = useMemo(
+    () => incomingHandoffs.map((handoff) => `${handoff.id}:${handoff.updated_at || ''}:${handoff.summary}`).join('|'),
+    [incomingHandoffs],
+  );
+
+  function updateHandoffDraft(handoffId: number, patch: Partial<HandoffDraft>) {
+    setHandoffDrafts((current) => ({
+      ...current,
+      [handoffId]: {
+        ...current[handoffId],
+        ...patch,
+      },
+    }));
+    setHandoffSaveState((current) => ({
+      ...current,
+      [handoffId]: 'idle',
+    }));
+  }
+
+  async function handleSaveHandoff(handoffId: number) {
+    const draft = handoffDrafts[handoffId];
+    if (!draft) return;
+    setHandoffSaveState((current) => ({ ...current, [handoffId]: 'saving' }));
+    try {
+      await api.put(`/api/handoffs/${handoffId}`, {
+        summary: draft.summary,
+        details: draft.details,
+      });
+      setHandoffSaveState((current) => ({ ...current, [handoffId]: 'saved' }));
+      onRefresh();
+      window.setTimeout(() => {
+        setHandoffSaveState((current) => ({ ...current, [handoffId]: 'idle' }));
+      }, 1200);
+    } catch {
+      setHandoffSaveState((current) => ({ ...current, [handoffId]: 'error' }));
+    }
+  }
+
+  async function handleGenerateFromTemplate(handoffId: number) {
+    const templateKey = handoffTemplateKeys[handoffId] || 'general';
+    setHandoffSaveState((current) => ({ ...current, [handoffId]: 'saving' }));
+    try {
+      const resp = await api.post<TaskHandoff>(`/api/handoffs/${handoffId}/generate-from-template?template_key=${templateKey}`);
+      setHandoffDrafts((current) => ({
+        ...current,
+        [handoffId]: { summary: resp.summary, details: resp.details },
+      }));
+      setHandoffSaveState((current) => ({ ...current, [handoffId]: 'saved' }));
+      onRefresh();
+      window.setTimeout(() => {
+        setHandoffSaveState((current) => ({ ...current, [handoffId]: 'idle' }));
+      }, 1200);
+    } catch {
+      setHandoffSaveState((current) => ({ ...current, [handoffId]: 'error' }));
+    }
+  }
+
   // 在切换到一个可派发的任务时立即预取 Prompt，存到本地 state；
   // 这样用户点击「复制 Prompt 并派发 / 重新派发」时可以同步写剪贴板。
   // 任务的关键字段（描述、预期输出）变化时也要重新拉取。
@@ -126,7 +230,7 @@ export default function TaskDetailPanel({ task, agents, allTasks, onRefresh }: P
     return () => {
       cancelled = true;
     };
-  }, [task.id, task.status, task.task_name, task.description, task.expected_output_path, canOperate, hasDraftChanges]);
+  }, [task.id, task.status, task.task_name, task.description, task.expected_output_path, canOperate, hasDraftChanges, incomingHandoffSignature]);
 
   async function performDispatch(action: 'dispatch' | 'redispatch') {
     if (!canOperate) {
@@ -237,6 +341,98 @@ export default function TaskDetailPanel({ task, agents, allTasks, onRefresh }: P
               </li>
             ))}
           </ul>
+        )}
+      </div>
+
+      <div className="detail-section">
+        <label>入边 Handoff</label>
+        {incomingHandoffs.length === 0 ? (
+          <p>无</p>
+        ) : (
+          <div>
+            {incomingHandoffs.map((handoff) => (
+              <div key={handoff.id} style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                <p><strong>{handoff.from_task_id} {'->'} {handoff.to_task_id}</strong></p>
+                {handoff.summary ? <p><strong>摘要：</strong>{handoff.summary}</p> : <p>暂无摘要</p>}
+                {handoff.details && (
+                  <div style={{ whiteSpace: 'pre-wrap', marginTop: 8 }}>{handoff.details}</div>
+                )}
+                {!handoff.has_content && (
+                  <div className="helper-text">当前仍是占位 handoff，下游将回退到前序目录和 `result.json`。</div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="detail-section">
+        <label>出边 Handoff</label>
+        {outgoingHandoffs.length === 0 ? (
+          <p>无</p>
+        ) : (
+          <div>
+            {outgoingHandoffs.map((handoff) => {
+              const draft = handoffDrafts[handoff.id] || handoffToDraft(handoff);
+              const state = handoffSaveState[handoff.id] || 'idle';
+              const templateKey = handoffTemplateKeys[handoff.id] || 'general';
+              return (
+                <div key={handoff.id} style={{ border: '1px solid #e2e8f0', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                  <p><strong>{handoff.from_task_id} {'->'} {handoff.to_task_id}</strong></p>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 8 }}>
+                    <select
+                      value={templateKey}
+                      onChange={(event) => setHandoffTemplateKeys((prev) => ({ ...prev, [handoff.id]: event.target.value }))}
+                      className="detail-input"
+                      style={{ flex: 1 }}
+                    >
+                      {handoffTemplates.map((t) => (
+                        <option key={t.key} value={t.key}>{t.label}</option>
+                      ))}
+                    </select>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => handleGenerateFromTemplate(handoff.id)}
+                      disabled={state === 'saving'}
+                    >
+                      从模板生成
+                    </button>
+                  </div>
+                  <label>摘要</label>
+                  <textarea
+                    value={draft.summary}
+                    onChange={(event) => updateHandoffDraft(handoff.id, { summary: event.target.value })}
+                    rows={2}
+                    className="detail-textarea"
+                    placeholder="填写上游任务需要交给下游的核心结论"
+                  />
+                  <label>详情</label>
+                  <textarea
+                    value={draft.details}
+                    onChange={(event) => updateHandoffDraft(handoff.id, { details: event.target.value })}
+                    rows={8}
+                    className="detail-textarea"
+                    placeholder="填写详细交接内容（变更范围、测试重点、风险提示等）"
+                  />
+                  <div className="detail-actions" style={{ marginTop: 8 }}>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => handleSaveHandoff(handoff.id)}
+                      disabled={state === 'saving'}
+                      title="保存当前边的结构化 handoff"
+                    >
+                      {state === 'saving' ? '保存中...' : '保存 Handoff'}
+                    </button>
+                  </div>
+                  <div className={`helper-text ${state === 'error' ? 'helper-text-error' : ''}`}>
+                    {state === 'saved' && 'handoff 已保存'}
+                    {state === 'error' && 'handoff 保存失败，请重试'}
+                    {state === 'idle' && !handoff.has_content && '当前为占位 handoff，建议补齐后再让下游消费'}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
 

@@ -8,6 +8,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from routers.agents import AgentCreate, AgentResponse
+from routers.handoffs import TaskHandoffResponse, TaskHandoffUpdateRequest
 from routers.projects import ProjectCreate, ProjectResponse, ProjectUpdate
 from routers.process_templates import ProcessTemplateCreate, ProcessTemplateResponse, ProcessTemplateUpdate
 from routers.plans import PlanResponse, PlanPromptRequest, PromptResponse
@@ -30,11 +31,6 @@ class ContractFieldTests(unittest.TestCase):
         self.assertIn('long_term_reset_interval_days', AgentResponse.model_fields)
         self.assertIn('short_term_reset_needs_confirmation', AgentResponse.model_fields)
         self.assertIn('long_term_reset_needs_confirmation', AgentResponse.model_fields)
-        self.assertIn('created_by', AgentResponse.model_fields)
-        self.assertIn('owner_role', AgentResponse.model_fields)
-        self.assertIn('is_public', AgentResponse.model_fields)
-        self.assertIn('can_edit', AgentResponse.model_fields)
-        self.assertIn('is_disabled_public', AgentResponse.model_fields)
 
     def test_project_contracts_expose_collaboration_dir(self):
         self.assertIn('collaboration_dir', ProjectCreate.model_fields)
@@ -74,6 +70,14 @@ class ContractFieldTests(unittest.TestCase):
         self.assertIn('task_name', TaskResponse.model_fields)
         self.assertIn('expected_output_path', TaskResponse.model_fields)
         self.assertIn('timeout_minutes', TaskResponse.model_fields)
+
+    def test_handoff_contracts_expose_edge_schema(self):
+        self.assertIn('summary', TaskHandoffUpdateRequest.model_fields)
+        self.assertIn('required_inputs', TaskHandoffUpdateRequest.model_fields)
+        self.assertIn('artifacts', TaskHandoffUpdateRequest.model_fields)
+        self.assertIn('from_task_id', TaskHandoffResponse.model_fields)
+        self.assertIn('to_task_id', TaskHandoffResponse.model_fields)
+        self.assertIn('has_content', TaskHandoffResponse.model_fields)
 
     def test_datetime_responses_mark_naive_datetimes_as_utc(self):
         response = TaskResponse(

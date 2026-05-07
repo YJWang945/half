@@ -3,7 +3,6 @@ __pycache__/
 *.pyc
 .venv/
 *.egg-info/
-.pytest_cache/
 
 # Node
 node_modules/
@@ -29,3 +28,6 @@ src/backend/repos/
 
 # Optional local-only operator notes
 /LOCAL.md
+
+# Local game demo
+tank-game/

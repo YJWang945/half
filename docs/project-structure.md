@@ -20,6 +20,7 @@ half/
 ├── ROADMAP.zh-CN.md               # 中文路线图
 ├── docs/                          # 公开文档
 │   ├── architecture.md            # 系统架构说明
+│   ├── handoff.md                 # 结构化 handoff schema 与边界
 │   ├── task-lifecycle.md          # 运行时机制（状态流转、轮询、契约）
 │   ├── project-structure.md       # 本文档
 │   ├── quickstart.md              # 快速启动与排错（英文）
@@ -41,15 +42,14 @@ half/
 ```
 backend/
 ├── Dockerfile
-├── pyproject.toml                 # project metadata and dependencies (managed by uv)
-├── uv.lock                        # locked dependency manifest
+├── requirements.txt               # fastapi, uvicorn, sqlalchemy, pyjwt, passlib[bcrypt], bcrypt, python-multipart, json-repair
 ├── main.py                        # FastAPI app 入口；启动期校验、初始化和 polling worker 启动
 ├── config.py                      # Settings 类 + validate_security_config（启动期弱密钥/弱密码拒启）
 ├── database.py                    # SQLAlchemy engine / SessionLocal / Base
-├── models.py                      # 12 个 ORM 模型（User / Agent / GlobalSetting / Project / ProjectPlan / ProcessTemplate / Task / AgentTypeConfig / ModelDefinition / AgentTypeModelMap / TaskEvent / AuditLog）
+├── models.py                      # 13 个 ORM 模型（User / Agent / GlobalSetting / Project / ProjectPlan / ProcessTemplate / Task / TaskHandoff / AgentTypeConfig / ModelDefinition / AgentTypeModelMap / TaskEvent / AuditLog）
 ├── schemas.py                     # Pydantic 响应/请求 schema
 ├── auth.py                        # JWT 签发与校验、bcrypt 密码哈希工具
-├── access.py                      # get_owned_project / get_owned_task、Agent 可见性与可用性等业务隔离工具
+├── access.py                      # get_owned_project / get_owned_agent / get_owned_task 等 owner 级业务隔离工具
 ├── routers/                       # REST API 路由层
 │   ├── auth.py                    # /api/auth/*
 │   ├── agents.py                  # /api/agents/*
@@ -57,12 +57,14 @@ backend/
 │   ├── projects.py                # /api/projects CRUD
 │   ├── plans.py                   # /api/projects/:id/plans/*
 │   ├── tasks.py                   # /api/tasks/*（无 prefix；在 main 里 include）
+│   ├── handoffs.py                # /api/projects/:id/handoffs、/api/handoffs/:id
 │   ├── polling.py                 # /api/projects/:id/poll、polling-config、summary
 │   ├── process_templates.py       # /api/process-templates/*
 │   ├── settings.py                # /api/settings/polling、/api/settings/prompt
 │   └── users.py                   # /api/admin/users/* + /api/admin/audit-logs（仅管理员）
 ├── services/                      # 业务服务层
 │   ├── git_service.py             # clone / fetch / pull / read_file / file_exists / _safe_join / validate_git_url
+│   ├── handoffs.py                # handoff schema 校验、边级记录创建、JSON 序列化
 │   ├── path_service.py            # resolve_expected_output_path / normalize_expected_output_path（路径归一化 + 防越界）
 │   ├── prompt_service.py          # generate_plan_prompt / generate_task_prompt / generate_template_prompt
 │   ├── prompt_settings.py         # 全局 Prompt 设置（同机分配引导）读写
@@ -103,7 +105,7 @@ backend/
 3. 确保管理员账号可用
 4. 启动后台 polling worker
 
-FastAPI 应用也在这里实例化，并挂载 auth、agents、projects、plans、tasks、polling、settings、users、process templates 等路由。
+FastAPI 应用也在这里实例化，并挂载 auth、agents、projects、plans、tasks、handoffs、polling、settings、users、process templates 等路由。
 
 ### 2.2 核心模块职责速查
 
@@ -113,6 +115,7 @@ FastAPI 应用也在这里实例化，并挂载 auth、agents、projects、plans
 | 密码强度 / 启动期校验 | `config.py::validate_security_config` |
 | Agent 可用性推导、续推 | `services/agents.py` |
 | Git 读文件 / 同步策略 | `services/git_service.py::ensure_repo_sync / read_file / dir_has_content` |
+| Handoff schema / 边级记录 | `services/handoffs.py` |
 | 路径安全 / 归一化 | `services/path_service.py` |
 | Prompt 模板 | `services/prompt_service.py` |
 | 轮询循环 | `services/polling_service.py::polling_loop / poll_project` |
@@ -149,7 +152,7 @@ frontend/
 │   │   ├── PlanPage.tsx           # /projects/:id/plan 计划生成（双路径）
 │   │   ├── TasksPage.tsx          # /projects/:id/tasks DAG + 任务执行
 │   │   ├── SummaryPage.tsx        # /projects/:id/summary 执行汇总
-│   │   ├── ProjectSettingsPage.tsx # /settings 通知设置（所有用户）；全局轮询/Prompt 设置仅管理员可见
+│   │   ├── ProjectSettingsPage.tsx # /settings 全局项目参数（仅管理员）
 │   │   ├── ProcessTemplatesPage.tsx # /templates/* 模版 CRUD 的统一多视图组件
 │   │   ├── AgentsPage.tsx         # /agents 单列卡片 + 拖拽排序 + 重置倒计时
 │   │   ├── AgentSettingsPage.tsx  # /agents/settings（仅管理员）
@@ -240,6 +243,7 @@ src/
 ## 五、相关文档
 
 - `architecture.md`：系统整体架构、数据模型、API 分组
+- `handoff.md`：结构化 handoff schema、边界与任务边关系
 - `task-lifecycle.md`：运行时机制、状态流转、轮询
 - `quickstart.md` / `quickstart.zh-CN.md`：首次启动与排错
 - `ui-style.md`：前端设计系统

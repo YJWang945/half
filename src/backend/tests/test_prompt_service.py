@@ -6,7 +6,7 @@ BACKEND_DIR = Path(__file__).resolve().parents[1]
 if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
-from models import Agent, ProcessTemplate, Project, ProjectPlan, Task
+from models import Agent, ProcessTemplate, Project, ProjectPlan, Task, TaskHandoff
 from services.prompt_service import generate_plan_prompt, generate_task_prompt, resolve_selected_agent_models
 from services.prompt_settings import DEFAULT_PLAN_CO_LOCATION_GUIDANCE
 
@@ -35,6 +35,33 @@ class FakeTemplateSession:
         if self.model is ProcessTemplate:
             return self.template
         return None
+
+
+class FakeQuery:
+    def __init__(self, results):
+        self.results = results
+
+    def filter(self, *args, **kwargs):
+        return self
+
+    def all(self):
+        return list(self.results)
+
+    def first(self):
+        return self.results[0] if self.results else None
+
+
+class FakePromptSession:
+    def __init__(self, predecessors=None, handoffs=None):
+        self.predecessors = predecessors or []
+        self.handoffs = handoffs or []
+
+    def query(self, model):
+        if model is Task:
+            return FakeQuery(self.predecessors)
+        if model is TaskHandoff:
+            return FakeQuery(self.handoffs)
+        raise AssertionError(f"unexpected query model: {model}")
 
 
 class PromptServiceTests(unittest.TestCase):
@@ -154,24 +181,53 @@ class PromptServiceTests(unittest.TestCase):
             expected_output_path="outputs/proj-4-f9a125/TASK-001/result.json，包含 task_code 与 base.json 路径",
         )
 
-        class FakeQuery:
-            def filter(self, *args, **kwargs):
-                return self
-
-            def all(self):
-                return [predecessor]
-
-        class FakeSession:
-            def query(self, model):
-                self.model = model
-                return FakeQuery()
-
-        prompt = generate_task_prompt(FakeSession(), project, task)
+        prompt = generate_task_prompt(FakePromptSession(predecessors=[predecessor]), project, task)
         self.assertIn("outputs/proj-4-f9a125/TASK-001/", prompt)
         self.assertIn("outputs/proj-4-f9a125/TASK-002/", prompt)
         self.assertIn("result.json.tmp", prompt)
         self.assertIn("原子重命名为 `result.json`", prompt)
         self.assertIn("task_code`、`summary`、`artifacts`", prompt)
+
+    def test_generate_task_prompt_includes_structured_handoff_when_available(self):
+        project = Project(id=4, name="Demo", collaboration_dir="outputs/proj-4-f9a125")
+        task = Task(
+            id=22,
+            project_id=4,
+            task_code="TASK-002",
+            task_name="处理数据",
+            description="处理 TASK-001 输出",
+            depends_on_json='["TASK-001"]',
+        )
+        predecessor = Task(
+            id=21,
+            project_id=4,
+            task_code="TASK-001",
+            task_name="生成基础数据",
+            expected_output_path="outputs/proj-4-f9a125/TASK-001/result.json",
+        )
+        handoff = TaskHandoff(
+            from_task_id=21,
+            to_task_id=22,
+            handoff_json=(
+                '{"from_task_id":"TASK-001","to_task_id":"TASK-002","summary":"请重点验证解析后的字段完整性。",'
+                '"required_inputs":["检查 base.json 是否已生成"],'
+                '"artifacts":[{"path":"outputs/proj-4-f9a125/TASK-001/report.md","type":"report","description":"开发报告"}],'
+                '"open_questions":["是否需要兼容旧字段"],'
+                '"risks_or_caveats":["尚未覆盖大文件输入"]}'
+            ),
+        )
+
+        prompt = generate_task_prompt(
+            FakePromptSession(predecessors=[predecessor], handoffs=[handoff]),
+            project,
+            task,
+        )
+
+        self.assertIn("## 结构化 Handoff", prompt)
+        self.assertIn("请重点验证解析后的字段完整性。", prompt)
+        self.assertIn("检查 base.json 是否已生成", prompt)
+        self.assertIn("outputs/proj-4-f9a125/TASK-001/report.md", prompt)
+        self.assertIn("尚未覆盖大文件输入", prompt)
 
     def test_generate_task_prompt_includes_project_goal_section(self):
         project = Project(

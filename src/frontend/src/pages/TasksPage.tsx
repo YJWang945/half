@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
-import { Task, Agent, Project } from '../types';
+import { Task, Agent, Project, TaskHandoff } from '../types';
 import DagView from '../components/DagView';
 import TaskDetailPanel from '../components/TaskDetailPanel';
 import { getNextStepText } from '../contracts';
@@ -11,6 +11,7 @@ export default function TasksPage() {
   const navigate = useNavigate();
   const [project, setProject] = useState<Project | null>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [handoffs, setHandoffs] = useState<TaskHandoff[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
@@ -27,8 +28,12 @@ export default function TasksPage() {
       setLoading(false);
     });
     try {
-      const taskList = await api.get<Task[]>(`/api/projects/${id}/tasks`);
+      const [taskList, handoffList] = await Promise.all([
+        api.get<Task[]>(`/api/projects/${id}/tasks`),
+        api.get<TaskHandoff[]>(`/api/projects/${id}/handoffs`),
+      ]);
       setTasks(taskList);
+      setHandoffs(handoffList);
     } catch {
       // ignore
     } finally {
@@ -129,6 +134,7 @@ export default function TasksPage() {
         <div className="tasks-dag-panel">
           <DagView
             tasks={tasksWithAgentLabels}
+            handoffs={handoffs}
             selectedTaskId={selectedTaskId}
             onSelectTask={setSelectedTaskId}
             missingPredecessorIds={new Set()}
@@ -140,6 +146,7 @@ export default function TasksPage() {
               task={selectedTask}
               agents={agents}
               allTasks={tasks}
+              handoffs={handoffs}
               onRefresh={fetchData}
             />
           ) : (

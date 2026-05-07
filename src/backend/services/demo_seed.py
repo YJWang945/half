@@ -14,10 +14,12 @@ from models import (
     Project,
     ProjectPlan,
     Task,
+    TaskHandoff,
     TaskEvent,
     User,
     utcnow,
 )
+from services.handoffs import build_handoff_document, ensure_handoffs_for_tasks, serialize_handoff_document
 from services.project_agents import serialize_agent_assignments
 
 DEMO_META_KEY = "demo_project_seed_v1"
@@ -162,6 +164,42 @@ DEMO_TEMPLATE_INPUTS = {
     "final_report": f"{DEMO_COLLABORATION_DIR}/final-report.md",
     "prd": f"{DEMO_COLLABORATION_DIR}/prd.md",
     "tech_spec": f"{DEMO_COLLABORATION_DIR}/tech-spec.md",
+}
+
+DEMO_HANDOFF_DOCUMENTS = {
+    ("T1_DEV", "T2_TEST"): {
+        "summary": "已完成代码修改并通过本地验证，修改报告已写入协作目录。",
+        "details": (
+            "## 核心变更\n"
+            "修改了登录校验逻辑，增加了失败重试次数限制和错误提示文案优化。\n\n"
+            "## 测试重点\n"
+            "- 验证 Bug 是否按修改方案被修复\n"
+            "- 检查本次改动影响的相邻功能是否出现回归\n"
+            "- 确认错误提示文案符合需求文档\n\n"
+            "## 风险提示\n"
+            "- 当前只完成了本地验证，尚未经过独立测试环境回归\n"
+            "- 未覆盖 LDAP 登录分支\n"
+            "- 测试环境配置可能与本地不一致，需确认验证码配置版本\n\n"
+            "## 关联工件\n"
+            f"- 开发与本地验证报告：{DEMO_COLLABORATION_DIR}/outputs/T1_DEV/report.md\n"
+        ),
+    },
+    ("T1_DEV", "T3_REVIEW"): {
+        "summary": "代码实现已完成并形成修改报告，请围绕修复范围和边界条件做专项审查。",
+        "details": (
+            "## 修改范围\n"
+            "本次修改集中在登录校验逻辑，涉及 auth 模块和错误处理层。\n\n"
+            "## 评审要点\n"
+            "- 修改是否严格落在问题定位范围内\n"
+            "- 是否引入了新的状态分支或未覆盖的异常路径\n"
+            "- 错误处理逻辑是否完备\n\n"
+            "## 注意事项\n"
+            "- 本次 Demo 不要求真实修复 bug，审查结论应聚焦流程可追溯性\n"
+            "- 请关注代码风格和可维护性\n\n"
+            "## 关联工件\n"
+            f"- 供代码审查使用的修改报告：{DEMO_COLLABORATION_DIR}/outputs/T1_DEV/report.md\n"
+        ),
+    },
 }
 
 
@@ -485,6 +523,33 @@ def seed_demo_project(db: Session, admin: User) -> bool:
                     ],
                 }, ensure_ascii=False),
             ))
+
+    db.flush()
+    ensure_handoffs_for_tasks(db, db.query(Task).filter(Task.project_id == project.id).all())
+    task_by_code = {
+        task.task_code: task
+        for task in db.query(Task).filter(Task.project_id == project.id).all()
+    }
+    for (from_code, to_code), content in DEMO_HANDOFF_DOCUMENTS.items():
+        from_task = task_by_code.get(from_code)
+        to_task = task_by_code.get(to_code)
+        if from_task is None or to_task is None:
+            continue
+        handoff = db.query(TaskHandoff).filter(
+            TaskHandoff.project_id == project.id,
+            TaskHandoff.from_task_id == from_task.id,
+            TaskHandoff.to_task_id == to_task.id,
+        ).first()
+        if handoff is None:
+            continue
+        handoff.handoff_json = serialize_handoff_document(
+            build_handoff_document(
+                from_task.task_code,
+                to_task.task_code,
+                summary=content["summary"],
+                details=content["details"],
+            )
+        )
 
     _upsert_global_setting(
         db,

@@ -8,7 +8,7 @@ import ReactFlow, {
   MarkerType,
 } from 'reactflow';
 import 'reactflow/dist/style.css';
-import { Task } from '../types';
+import { Task, TaskHandoff } from '../types';
 
 const STATUS_COLORS: Record<string, string> = {
   pending_blocked: '#94a3b8',
@@ -30,6 +30,7 @@ const STATUS_BACKGROUNDS: Record<string, string> = {
 
 interface Props {
   tasks: Task[];
+  handoffs?: TaskHandoff[];
   selectedTaskId?: number | null;
   onSelectTask: (taskId: number) => void;
   missingPredecessorIds?: Set<number>;
@@ -113,9 +114,10 @@ function getVisualStatus(task: Task, tasks: Task[]): string {
   return isReady ? 'pending_ready' : 'pending_blocked';
 }
 
-export default function DagView({ tasks, selectedTaskId, onSelectTask, missingPredecessorIds }: Props) {
+export default function DagView({ tasks, handoffs = [], selectedTaskId, onSelectTask, missingPredecessorIds }: Props) {
   const { initialNodes, initialEdges } = useMemo(() => {
     const positions = computeLayout(tasks);
+    const handoffMap = new Map(handoffs.map((handoff) => [`${handoff.from_task_id}->${handoff.to_task_id}`, handoff]));
 
     const nodes: Node[] = tasks.map((task) => {
       const pos = positions.get(task.task_code) || { x: 0, y: 0 };
@@ -169,19 +171,31 @@ export default function DagView({ tasks, selectedTaskId, onSelectTask, missingPr
       deps.forEach((depCode) => {
         const depTask = tasks.find((t) => t.task_code === depCode);
         if (depTask) {
+          const handoff = handoffMap.get(`${depTask.task_code}->${task.task_code}`);
+          const hasContent = handoff?.has_content ?? false;
           edges.push({
             id: `${depTask.id}-${task.id}`,
             source: String(depTask.id),
             target: String(task.id),
+            label: handoff ? (hasContent ? 'handoff' : 'handoff draft') : '',
+            labelStyle: {
+              fontSize: 11,
+              fill: hasContent ? '#0f766e' : '#64748b',
+              fontWeight: 600,
+            },
             markerEnd: { type: MarkerType.ArrowClosed },
-            style: { stroke: '#94a3b8' },
+            style: {
+              stroke: hasContent ? '#0f766e' : '#94a3b8',
+              strokeDasharray: hasContent ? undefined : '6 4',
+              strokeWidth: hasContent ? 2.5 : 1.5,
+            },
           });
         }
       });
     });
 
     return { initialNodes: nodes, initialEdges: edges };
-  }, [tasks, selectedTaskId, missingPredecessorIds]);
+  }, [handoffs, tasks, selectedTaskId, missingPredecessorIds]);
 
   const onNodeClick = useCallback(
     (_: React.MouseEvent, node: Node) => {

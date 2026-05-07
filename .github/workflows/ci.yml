@@ -26,17 +26,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Set up uv
-        uses: astral-sh/setup-uv@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-          enable-cache: true
+          cache: pip
+          cache-dependency-path: |
+            src/backend/requirements.txt
+            src/backend/requirements-dev.txt
 
       - name: Install backend dependencies
-        run: uv sync --frozen
+        run: pip install -r requirements-dev.txt
 
       - name: Run backend tests
-        run: uv run python -m pytest tests/ -v
+        run: python -m pytest tests/ -v
 
   frontend:
     name: Frontend Tests And Build

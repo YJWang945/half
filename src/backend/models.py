@@ -18,8 +18,6 @@ class User(Base):
     password_hash = Column(Text, nullable=False)
     role = Column(Text, nullable=False, default="user")
     status = Column(Text, nullable=False, default="active")
-    feishu_webhook_url = Column(Text, nullable=False, default="")
-    feishu_notify_events_json = Column(Text, nullable=False, default='["completed", "timeout", "project_completed"]')
     last_login_at = Column(DateTime, nullable=True)
     last_login_ip = Column(Text, nullable=True)
     created_at = Column(DateTime, default=utcnow)
@@ -149,6 +147,21 @@ class Task(Base):
     timeout_minutes = Column(Integer, nullable=True)
     dispatched_at = Column(DateTime, nullable=True)
     completed_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=utcnow)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+class TaskHandoff(Base):
+    __tablename__ = "task_handoffs"
+    __table_args__ = (
+        UniqueConstraint("from_task_id", "to_task_id", name="uq_task_handoff_edge"),
+    )
+
+    id = Column(Integer, primary_key=True, index=True)
+    project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
+    from_task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False)
+    to_task_id = Column(Integer, ForeignKey("tasks.id"), nullable=False)
+    handoff_json = Column(Text, nullable=False, default="{}")
     created_at = Column(DateTime, default=utcnow)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
 

@@ -12,7 +12,7 @@ if str(BACKEND_DIR) not in sys.path:
     sys.path.insert(0, str(BACKEND_DIR))
 
 from auth import hash_password
-from models import Agent, AgentTypeConfig, AgentTypeModelMap, Base, ModelDefinition, ProcessTemplate, Project, ProjectPlan, Task, TaskEvent, User
+from models import Agent, AgentTypeConfig, AgentTypeModelMap, Base, ModelDefinition, ProcessTemplate, Project, ProjectPlan, Task, TaskEvent, TaskHandoff, User
 from services.demo_seed import DEMO_PROJECT_NAME, DEMO_TEMPLATE_NAME, seed_demo_project
 
 
@@ -63,6 +63,16 @@ class DemoSeedTests(unittest.TestCase):
         self.assertEqual(json.loads(tasks["T3_REVIEW"].depends_on_json), ["T1_DEV"])
         self.assertEqual(json.loads(tasks["T4_EVAL"].depends_on_json), ["T2_TEST", "T3_REVIEW"])
         self.assertEqual(json.loads(tasks["T5_SYNC"].depends_on_json), ["T4_EVAL"])
+        handoffs = self.db.query(TaskHandoff).filter(TaskHandoff.project_id == project.id).all()
+        self.assertEqual(len(handoffs), 5)
+        seeded_handoff = next(
+            item for item in handoffs
+            if tasks["T1_DEV"].id == item.from_task_id and tasks["T2_TEST"].id == item.to_task_id
+        )
+        seeded_payload = json.loads(seeded_handoff.handoff_json)
+        self.assertIn("已完成代码修改", seeded_payload["summary"])
+        self.assertEqual(seeded_payload["from_task_id"], "T1_DEV")
+        self.assertEqual(seeded_payload["to_task_id"], "T2_TEST")
 
         completed_event = (
             self.db.query(TaskEvent)

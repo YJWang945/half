@@ -3,7 +3,8 @@ import re
 
 from sqlalchemy.orm import Session
 
-from models import Agent, ProcessTemplate, Project, ProjectPlan, Task
+from models import Agent, ProcessTemplate, Project, ProjectPlan, Task, TaskHandoff
+from services.handoffs import handoff_has_content, parse_handoff_document
 from services.project_agents import parse_agent_assignments_json
 from services.prompt_settings import normalize_plan_co_location_guidance
 
@@ -246,6 +247,49 @@ def _build_template_inputs_section(db: Session, project: Project, task: Task) ->
     return "## 模版所需信息\n" + "\n".join(lines)
 
 
+def _build_handoff_section(
+    db: Session,
+    task: Task,
+    predecessors: list[Task],
+) -> str:
+    if not predecessors:
+        return ""
+    predecessor_ids = [predecessor.id for predecessor in predecessors if predecessor.id is not None]
+    if not predecessor_ids:
+        return ""
+    handoffs = db.query(TaskHandoff).filter(
+        TaskHandoff.from_task_id.in_(predecessor_ids),
+        TaskHandoff.to_task_id == task.id,
+    ).all()
+    handoff_map = {handoff.from_task_id: handoff for handoff in handoffs}
+    sections: list[str] = []
+    for predecessor in predecessors:
+        handoff = handoff_map.get(predecessor.id)
+        if handoff is None:
+            sections.append(
+                f"### {predecessor.task_code} -> {task.task_code}\n"
+                "- 当前没有结构化 handoff；请直接阅读上游目录和 `result.json`。"
+            )
+            continue
+        document = parse_handoff_document(handoff.handoff_json, predecessor, task)
+        if not handoff_has_content(document):
+            sections.append(
+                f"### {predecessor.task_code} -> {task.task_code}\n"
+                "- 当前未填写结构化 handoff；请直接阅读上游目录和 `result.json`。"
+            )
+            continue
+
+        lines = [f"### {predecessor.task_code} -> {task.task_code}"]
+        summary = str(document.get("summary") or "").strip()
+        if summary:
+            lines.append(f"**摘要：** {summary}")
+        details = str(document.get("details") or "").strip()
+        if details:
+            lines.append(details)
+        sections.append("\n".join(lines))
+    return "## 结构化 Handoff\n" + "\n\n".join(sections)
+
+
 def generate_task_prompt(
     db: Session,
     project: Project,
@@ -259,6 +303,7 @@ def generate_task_prompt(
 
     depends_on = json.loads(task.depends_on_json) if task.depends_on_json else []
     predecessor_lines = ""
+    predecessors: list[Task] = []
     if depends_on:
         predecessors = db.query(Task).filter(
             Task.project_id == project.id,
@@ -276,6 +321,7 @@ def generate_task_prompt(
             predecessor_lines = "无前序任务输出"
     else:
         predecessor_lines = "无前序任务输出"
+    handoff_section = _build_handoff_section(db, task, predecessors)
 
     sections = [f"你是项目 [{project.name}] 的执行 Agent。"]
     if goal_text:
@@ -292,9 +338,10 @@ def generate_task_prompt(
 - 任务描述：{task.description}
 
 ## 前序任务输出
-{predecessor_lines}
-
-## 输出要求
+{predecessor_lines}""")
+    if handoff_section:
+        sections.append(handoff_section)
+    sections.append(f"""## 输出要求
 1. 将所有产出文件写入目录：{task_dir}/
 2. 所有产出文件写完后，最后生成 `result.json`，它是完成哨兵，不是中间过程文件
 3. 先写入临时文件 `result.json.tmp`，确认写完并 flush 后，再原子重命名为 `result.json`

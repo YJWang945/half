@@ -39,13 +39,6 @@ understanding the project board, task dependencies, and agent availability.
 <img src="./docs/images/readme-project-board.png" alt="Demo project board" width="520">
 
 </details>
-<details>
-<summary>Minimum closed-loop demonstration</summary>
-
-<img src="./docs/images/readme-minimal-loop.gif" alt="Demo project board" width="520">
-
-</details>
-
 
 ## What HALF is not
 
@@ -146,8 +139,6 @@ Application code lives under [`src/`](./src). Documentation lives under
 - [`docs/ui-style.md`](./docs/ui-style.md) - UI and interaction principles
 - [`docs/quickstart.md`](./docs/quickstart.md) - step-by-step setup guide with
   troubleshooting
-- [`docs/user-manual.md`](./docs/user-manual.md) - page-oriented user manual
-  (purpose, steps, and screenshots)
 - `docs/roadmap/` - version-specific execution plans (coming)
 - `docs/research/` - research notes for exploratory work (coming)
 - `docs/adr/` - architecture decision records (coming)
@@ -182,7 +173,7 @@ After logging in:
    pre-loaded with sample tasks. Review it to understand the task board, DAG
    view, and handoff prompts.
 2. **Create Your Own Project** - Click "新建项目" and configure:
-   - Git repository URL (required; use the repository root or clone URL)
+   - Git repository URL (must be accessible from the container)
    - Collaboration directory (relative path for outputs)
    - **At least one Agent must be selected** from the pre-seeded demo agents
    - Polling intervals and timeout settings
@@ -220,27 +211,16 @@ HALF_DEMO_SEED_ENABLED=false
 
 ## Local Development
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) before running the backend locally:
-
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
-
 Backend:
 
 ```bash
 cd src/backend
+python3.12 -m venv .venv && source .venv/bin/activate
+pip install -r requirements-dev.txt
 export HALF_SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')
 export HALF_ADMIN_PASSWORD='<your-strong-password>'
-uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
+uvicorn main:app --reload --host 0.0.0.0 --port 8000
 ```
-
-> `uv` reads `pyproject.toml` and automatically creates a virtual environment
-> on first run. To install dev dependencies explicitly:
->
-> ```bash
-> uv sync
-> ```
 
 Frontend:
 
@@ -256,7 +236,7 @@ The frontend uses relative `/api` requests. In local development, Vite proxies
 ## Testing
 
 ```bash
-cd src/backend && uv run pytest tests/ -v
+cd src/backend && python -m pytest tests/ -v
 cd src/frontend && npm test && npm run build
 ```
 
@@ -266,20 +246,6 @@ Out of the box, the backend container cannot reach private Git repositories.
 HALF does not mount host SSH keys by default. If you need private repository
 access, copy `src/docker-compose.override.yml.example` to
 `src/docker-compose.override.yml` and mount a dedicated deploy key.
-For private repositories, use a dedicated SSH deploy key, credential helper, or
-backend-managed credentials; do not put access tokens or passwords in the
-repository URL.
-
-Project creation and editing require a Git repository URL. HALF accepts
-repository roots and clone URLs such as `https://github.com/org/repo`,
-`https://github.com/org/repo.git`, `ssh://git@github.com/org/repo.git`, and
-`git@github.com:org/repo.git`. On GitHub, Gitee, Bitbucket, and Codeberg,
-root URLs must be exactly `owner/repo`; GitLab subgroup root URLs such as
-`https://gitlab.com/group/subgroup/repo` are also accepted. Save-time validation
-checks URL shape and safety only; it does not prove that the repository exists
-or that the container has access. Do not enter issues, pull request, tree, blob,
-graphs, or other repository-internal page URLs, and do not embed credentials,
-access tokens, or deploy tokens in the URL's userinfo, query, or fragment.
 
 ## Production Deployment Notes
 
