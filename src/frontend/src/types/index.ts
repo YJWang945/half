@@ -171,6 +171,23 @@ export interface TaskHandoff {
   updated_at: string | null;
 }
 
+export interface AutoDraftSourceInfo {
+  result_json_found: boolean;
+  reports_read: string[];
+  from_task_code: string;
+  to_task_code: string;
+}
+
+export interface AutoDraftResponse {
+  draft: {
+    summary: string;
+    details: string;
+  };
+  edge_type: string;
+  warnings: string[];
+  source_info: AutoDraftSourceInfo;
+}
+
 export interface TaskEvent {
   id: number;
   task_id: number;

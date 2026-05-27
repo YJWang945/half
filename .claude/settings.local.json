@@ -1,7 +1,23 @@
 {
   "permissions": {
     "allow": [
-      "Bash(docker exec src-frontend-1:*)"
+      "Bash(docker exec src-frontend-1:*)",
+      "Bash(cp /c/Users/48370/Desktop/毕业论文/half/src/backend/pyproject.toml /c/Users/48370/Desktop/毕业论文/half-main/src/backend/)",
+      "Bash(cp /c/Users/48370/Desktop/毕业论文/half/src/backend/uv.lock /c/Users/48370/Desktop/毕业论文/half-main/src/backend/)",
+      "Bash(cp /c/Users/48370/Desktop/毕业论文/half/src/backend/services/feishu_service.py /c/Users/48370/Desktop/毕业论文/half-main/src/backend/services/)",
+      "Bash(docker --version)",
+      "Bash(docker compose *)",
+      "Bash(python -m pytest tests/test_handoffs.py tests/test_handoff_auto_generator.py -v)",
+      "Bash(npm run *)",
+      "Bash(curl -s http://localhost:8000/api/auth/login -H \"Content-Type: application/json\" -d '{\"username\":\"admin\",\"password\":\"Abc123456\"}')",
+      "Bash(python3 -c \"import sys,json; print\\(json.load\\(sys.stdin\\)['token']\\)\")",
+      "Bash(curl *)",
+      "Bash(python -c \"import sys,json; data=json.load\\(sys.stdin\\); h=data[0]; print\\(f'summary: {h[\\\\\"summary\\\\\"][:60]}'\\); print\\(f'updated_at: {h[\\\\\"updated_at\\\\\"]}'\\)\")",
+      "Bash(python -m pytest tests/ -v --ignore=tests/test_handoffs.py -k \"not test_list_project_handoffs_returns_edge_schema and not test_update_handoff_rewrites_document\")",
+      "Bash(python -m pytest tests/ -v --ignore=tests/test_admin_public_agents.py)",
+      "Bash(python -m pytest tests/test_contract_fields.py::ContractFieldTests::test_handoff_contracts_expose_edge_schema -v)",
+      "Bash(python -m pytest tests/test_prompt_service.py::PromptServiceTests::test_generate_task_prompt_includes_structured_handoff_when_available -v)",
+      "Bash(python -m pytest tests/test_demo_seed.py::DemoSeedTests::test_seed_creates_browsable_demo_project -v)"
     ]
   }
 }

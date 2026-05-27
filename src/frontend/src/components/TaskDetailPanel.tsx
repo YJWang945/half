@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Task, Agent, TaskHandoff } from '../types';
+import { Task, Agent, TaskHandoff, AutoDraftResponse } from '../types';
 import { api } from '../api/client';
 import StatusBadge from './StatusBadge';
 import { copyText } from '../contracts';
@@ -50,6 +50,8 @@ export default function TaskDetailPanel({ task, agents, allTasks, handoffs, onRe
   const [handoffSaveState, setHandoffSaveState] = useState<Record<number, 'idle' | 'saving' | 'saved' | 'error'>>({});
   const [handoffTemplates, setHandoffTemplates] = useState<HandoffTemplateItem[]>([]);
   const [handoffTemplateKeys, setHandoffTemplateKeys] = useState<Record<number, string>>({});
+  const [autoDraftLoading, setAutoDraftLoading] = useState<Record<number, boolean>>({});
+  const [autoDraftWarnings, setAutoDraftWarnings] = useState<Record<number, string[]>>({});
 
   const assignee = agents.find((a) => a.id === task.assignee_agent_id);
 
@@ -201,6 +203,30 @@ export default function TaskDetailPanel({ task, agents, allTasks, handoffs, onRe
       }, 1200);
     } catch {
       setHandoffSaveState((current) => ({ ...current, [handoffId]: 'error' }));
+    }
+  }
+
+  async function handleGenerateAutoDraft(handoffId: number) {
+    setAutoDraftLoading((prev) => ({ ...prev, [handoffId]: true }));
+    setAutoDraftWarnings((prev) => ({ ...prev, [handoffId]: [] }));
+    try {
+      const resp = await api.post<AutoDraftResponse>(
+        `/api/handoffs/${handoffId}/generate-auto-draft`,
+      );
+      setHandoffDrafts((current) => ({
+        ...current,
+        [handoffId]: { summary: resp.draft.summary, details: resp.draft.details },
+      }));
+      if (resp.warnings.length > 0) {
+        setAutoDraftWarnings((prev) => ({ ...prev, [handoffId]: resp.warnings }));
+      }
+    } catch {
+      setAutoDraftWarnings((prev) => ({
+        ...prev,
+        [handoffId]: ['自动生成失败，请检查上游任务是否已完成并推送了 result.json'],
+      }));
+    } finally {
+      setAutoDraftLoading((prev) => ({ ...prev, [handoffId]: false }));
     }
   }
 
@@ -397,6 +423,13 @@ export default function TaskDetailPanel({ task, agents, allTasks, handoffs, onRe
                     >
                       从模板生成
                     </button>
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => handleGenerateAutoDraft(handoff.id)}
+                      disabled={state === 'saving' || autoDraftLoading[handoff.id]}
+                    >
+                      {autoDraftLoading[handoff.id] ? '生成中...' : '自动生成草稿'}
+                    </button>
                   </div>
                   <label>摘要</label>
                   <textarea
@@ -429,6 +462,13 @@ export default function TaskDetailPanel({ task, agents, allTasks, handoffs, onRe
                     {state === 'error' && 'handoff 保存失败，请重试'}
                     {state === 'idle' && !handoff.has_content && '当前为占位 handoff，建议补齐后再让下游消费'}
                   </div>
+                  {autoDraftWarnings[handoff.id] && autoDraftWarnings[handoff.id]!.length > 0 && (
+                    <div className="helper-text helper-text-warning" style={{ marginTop: 4 }}>
+                      {autoDraftWarnings[handoff.id]!.map((w, i) => (
+                        <div key={i}>{w}</div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               );
             })}

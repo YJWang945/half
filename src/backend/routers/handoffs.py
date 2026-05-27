@@ -9,6 +9,7 @@ from auth import get_current_user
 from database import get_db
 from models import Project, Task, TaskHandoff, User
 from schemas import UtcDatetimeModel
+from services.handoff_auto_generator import generate_auto_draft
 from services.handoffs import (
     HANDOFF_TEMPLATES,
     build_handoff_document,
@@ -43,6 +44,20 @@ class TaskHandoffUpdateRequest(BaseModel):
 class HandoffTemplateItem(BaseModel):
     key: str
     label: str
+
+
+class AutoDraftSourceInfo(BaseModel):
+    result_json_found: bool
+    reports_read: list[str]
+    from_task_code: str
+    to_task_code: str
+
+
+class AutoDraftResponse(BaseModel):
+    draft: TaskHandoffUpdateRequest
+    edge_type: str
+    warnings: list[str]
+    source_info: AutoDraftSourceInfo
 
 
 def _build_handoff_response(handoff: TaskHandoff, from_task: Task, to_task: Task) -> TaskHandoffResponse:
@@ -147,3 +162,31 @@ def generate_handoff_from_template_endpoint(
     db.commit()
     db.refresh(handoff)
     return _build_handoff_response(handoff, from_task, to_task)
+
+
+@router.post("/api/handoffs/{handoff_id}/generate-auto-draft", response_model=AutoDraftResponse)
+def generate_auto_draft_endpoint(
+    handoff_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    """从上游任务产出（result.json、报告文件）中自动提取信息生成 handoff 草稿。
+
+    本端点不会自动保存草稿到数据库。返回 draft 供前端展示，由负责人确认后通过
+    PUT /api/handoffs/{handoff_id} 保存。
+    """
+    handoff, from_task, to_task = _get_owned_handoff(db, handoff_id, user)
+    project = db.query(Project).filter(Project.id == handoff.project_id).first()
+    if project is None:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    result = generate_auto_draft(db, project, from_task, to_task)
+    return AutoDraftResponse(
+        draft=TaskHandoffUpdateRequest(
+            summary=result["draft"]["summary"],
+            details=result["draft"]["details"],
+        ),
+        edge_type=result["edge_type"],
+        warnings=result["warnings"],
+        source_info=AutoDraftSourceInfo(**result["source_info"]),
+    )

@@ -140,6 +140,40 @@ class HandoffApiTests(unittest.TestCase):
         )
         self.assertEqual(response.status_code, 404)
 
+    def test_generate_auto_draft_returns_draft_structure(self):
+        response = self.client.post(
+            "/api/handoffs/1/generate-auto-draft",
+            headers=self._headers("owner", "Owner123"),
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertIn("draft", payload)
+        self.assertIn("summary", payload["draft"])
+        self.assertIn("details", payload["draft"])
+        self.assertIn("edge_type", payload)
+        self.assertIn("warnings", payload)
+        self.assertIn("source_info", payload)
+        self.assertIn("result_json_found", payload["source_info"])
+
+    def test_generate_auto_draft_does_not_save(self):
+        response = self.client.post(
+            "/api/handoffs/1/generate-auto-draft",
+            headers=self._headers("owner", "Owner123"),
+        )
+        self.assertEqual(response.status_code, 200)
+
+        with self.SessionLocal() as db:
+            handoff = db.query(TaskHandoff).filter(TaskHandoff.id == 1).one()
+            stored = json.loads(handoff.handoff_json)
+        self.assertEqual(stored.get("summary"), "请重点验证修复后的登录失败重试限制。")
+
+    def test_generate_auto_draft_404_for_wrong_owner(self):
+        response = self.client.post(
+            "/api/handoffs/2/generate-auto-draft",
+            headers=self._headers("owner", "Owner123"),
+        )
+        self.assertEqual(response.status_code, 404)
+
 
 if __name__ == "__main__":
     unittest.main()

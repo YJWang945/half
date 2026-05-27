@@ -1,0 +1,17 @@
+{
+  "task_code": "T1_DEV",
+  "summary": "完成了坦克大战网页游戏 MVP 开发。使用纯 HTML5 Canvas + JavaScript（零依赖）实现，包含玩家坦克控制、5 个敌方 AI、砖墙/钢墙地形、碰撞检测、射击系统、HP 血条和完整游戏状态机（菜单/游戏中/暂停/胜利/失败）。共交付 10 个源文件：1 个 HTML 入口、1 个 CSS 样式、7 个 JS 模块、1 个交付报告。",
+  "artifacts": [
+    { "path": "index.html", "description": "入口页面，800×600 Canvas 画布" },
+    { "path": "css/style.css", "description": "暗色主题样式" },
+    { "path": "js/main.js", "description": "启动入口与游戏循环" },
+    { "path": "js/input.js", "description": "键盘输入管理器" },
+    { "path": "js/map.js", "description": "20×15 地图与墙壁系统" },
+    { "path": "js/tank.js", "description": "坦克类（移动/射击/受击/绘制）" },
+    { "path": "js/bullet.js", "description": "子弹类（飞行/碰撞/绘制）" },
+    { "path": "js/collision.js", "description": "AABB 碰撞检测函数" },
+    { "path": "js/enemy.js", "description": "敌方 AI 控制器" },
+    { "path": "js/game.js", "description": "游戏状态机与主逻辑" },
+    { "path": "delivery-report.md", "description": "交付报告" }
+  ]
+}

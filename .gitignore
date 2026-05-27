@@ -26,8 +26,8 @@ src/docker-compose.override.yml
 src/backend/half.db
 src/backend/repos/
 
-# Optional local-only operator notes
-/LOCAL.md
-
 # Local game demo
 tank-game/
+
+# Optional local-only operator notes
+/LOCAL.md
